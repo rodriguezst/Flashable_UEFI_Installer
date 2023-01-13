@@ -43,14 +43,43 @@ cd $tmp;
 uefipayload=`(ls *_UEFI-Padding.fd) 2>/dev/null`;
 [ "$uefipayload" ] || abort "No edk2-msm UEFI image found in zip!";
 
+device_names=`(echo $uefipayload| cut -d '_' -f 1)`
+
+[ "$device_names" ] && {
+	if ! command -v getprop; then
+		print "Warning: getprop not found! Skipping device check!"
+		return
+	fi
+	print "Checking device compatibility..."
+	match=0
+	ro_product_device=$(getprop ro.product.device)
+	ro_product_model=$(getprop ro.product.model)
+	ro_build_product=$(getprop ro.build.product)
+	for i in $device_names; do
+		[ "$ro_product_device" = "$i" ] ||
+		[ "$ro_product_model" = "$i" ] ||
+		[ "$ro_build_product" = "$i" ] &&
+			match=1
+	done
+	[ $match != 1 ] && abort "Unsupported device! Expecting $device_names, but this is $ro_product_device/$ro_product_model/$ro_build_product. Exiting..."
+}
+
 tool=$tmp/magiskboot;
 chmod 755 $tool;
+
+backuppath="/sdcard/boot_backup"
 
 ui_print " ";
 for slot in _a _b; do
   if [ "$uefipayload" ]; then
     ui_print "Running image patcher on $name$slot...";
     dd bs=1048576 if=$target$slot of=boot.img || abort "Failed to dump image!";
+
+    ui_print "Backing up original boot$slot.img..."
+    rm -f "$backuppath$slot.img"
+    cp -f boot.img "$backuppath$slot.img"
+    ui_print "Original boot$slot backed up to $backuppath$slot.img!"
+
     $tool unpack -h boot.img || abort "Failed to unpack image!";
 
     if [ "$(dd if=kernel bs=1 count=8 skip=64 status=none)" = "EDK2-MSM" ]; then
