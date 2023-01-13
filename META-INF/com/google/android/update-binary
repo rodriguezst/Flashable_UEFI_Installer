@@ -1,6 +1,6 @@
 #!/sbin/sh
-# TWRP A/B Installer Backend
-# by osm0sis, Dees_Troy and topjohnwu
+# edk2-msm Flashable UEFI Installer
+# modified from the TWRP A/B Installer Backend by osm0sis, Dees_Troy and topjohnwu
 
 OUTFD=/proc/self/fd/$2;
 ZIPFILE="$3";
@@ -9,7 +9,7 @@ ui_print() {
   if $BOOTMODE; then
     echo "$1";
   else
-    echo -e "ui_print $1\nui_print" >> $OUTFD;
+    echo -e "ui_print $1ui_print" >> $OUTFD;
   fi;
 }
 abort() { ui_print " "; ui_print "$1"; exit 1; }
@@ -19,16 +19,16 @@ BOOTMODE=false;
 ps | grep zygote | grep -v grep >/dev/null && BOOTMODE=true;
 $BOOTMODE || ps -A 2>/dev/null | grep zygote | grep -v grep >/dev/null && BOOTMODE=true;
 
-ui_print "########################################";
-ui_print "#    TWRP installer for A/B devices    #";
-ui_print "########################################";
+ui_print "#############################################";
+ui_print "#  edk2-msm UEFI installer for A/B devices  #";
+ui_print "#############################################";
 ui_print " ";
 
 # /dev/tmp is safe for both booted and recovery installs
-tmp=/dev/tmp/twrp-install;
+tmp=/dev/tmp/uefi-install;
 # target partition without the slot suffix
 if [ -e /dev/block/bootdevice/by-name/recovery_b ]; then
-  target=/dev/block/bootdevice/by-name/recovery;
+  abort "Recovery partition detected! Cancelling the installation";
 else
   target=/dev/block/bootdevice/by-name/boot;
 fi;
@@ -40,34 +40,36 @@ mkdir -p $tmp;
 unzip -o "$ZIPFILE" -d $tmp || abort "Failed to extract zip!";
 
 cd $tmp;
-recoverycpio=`(ls ramdisk-twrp.cpio || ls ramdisk-recovery.cpio) 2>/dev/null`;
-recoveryimg=`(ls twrp*.img || ls TWRP*.img || ls recovery.img) 2>/dev/null`;
-[ "$recoverycpio" ] || [ "$recoveryimg" ] || abort "No TWRP ramdisk/image found in zip!";
+uefipayload=`(ls *_UEFI-Padding.fd) 2>/dev/null`;
+[ "$uefipayload" ] || abort "No edk2-msm UEFI image found in zip!";
 
 tool=$tmp/magiskboot;
 chmod 755 $tool;
 
 ui_print " ";
 for slot in _a _b; do
-  if [ "$recoverycpio" ]; then
+  if [ "$uefipayload" ]; then
     ui_print "Running image patcher on $name$slot...";
     dd bs=1048576 if=$target$slot of=boot.img || abort "Failed to dump image!";
     $tool unpack -h boot.img || abort "Failed to unpack image!";
 
-    # kernel string want_initramfs -> skip_initramfs (Magisk)
-    $tool hexpatch kernel 77616E745F696E697472616D6673 736B69705F696E697472616D6673;
-    # kernel string trip_initramfs -> skip_initramfs (SuperSU)
-    $tool hexpatch kernel 747269705F696E697472616D6673 736B69705F696E697472616D6673;
+    if [ "$(dd if=kernel bs=1 count=8 skip=64 status=none)" = "EDK2-MSM" ]; then
+      ui_print "Patched boot.img with UEFI installed detected!";
+      ui_print "Updating...";
+      kerneloffset=`expr $(dd if=kernel bs=1 count=4 skip=16 status=none | od -An -t u) + 2097152`
+      dd if=kernel iflag=skip_bytes skip=$kerneloffset of=kernel_orig bs=512
+      rm -f kernel
+    else
+      ui_print "Stock boot.img detected!";
+      ui_print "Installing...";
+      mv kernel kernel_orig
+    fi;
 
-    # boot.img header cmdline remove skip_override (flar2 patch)
-    sed -i "s|$(grep '^cmdline=' header | cut -d= -f2-)|$(grep '^cmdline=' header | cut -d= -f2- | sed -e 's/skip_override//' -e 's/  */ /g' -e 's/[ \t]*$//')|" header;
+    cat $uefipayload kernel_orig > kernel
+    rm -f kernel_orig
 
-    cp -f $recoverycpio ramdisk.cpio;
     $tool repack boot.img || abort "Failed to repack image!";
     $tool cleanup;
-  else
-    ui_print "Flashing image to $name$slot...";
-    cp -f $recoveryimg new-boot.img;
   fi;
 
   blockdev --setrw $target$slot;
@@ -75,7 +77,7 @@ for slot in _a _b; do
   rm -f new-boot.img;
 done;
 
-if [ "$recoverycpio" ]; then
+if [ "$uefipayload" ]; then
   ui_print " ";
   ui_print "Image patching complete!";
 fi;
@@ -84,8 +86,5 @@ cd /;
 rm -rf /dev/tmp;
 
 ui_print " ";
-ui_print "Done installing TWRP!";
-if [ "$name" != "recovery" ]; then
-  ui_print " ";
-  ui_print "*** NOTE: You are now unrooted! ***";
-fi;
+ui_print "Done installing edk2-msm UEFI!";
+ui_print "Normal boot will enter Android, while Recovery mode is replaced with UEFI"
