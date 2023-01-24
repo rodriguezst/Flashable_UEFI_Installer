@@ -68,9 +68,11 @@ tool=$tmp/magiskboot;
 chmod 755 $tool;
 
 backuppath="/sdcard/boot_backup"
-
+slot=$(getprop ro.boot.slot_suffix)
 ui_print " ";
-for slot in _a _b; do
+ui_print "Current slot: $slot."
+
+if [ "$slot" ]; then
   if [ "$uefipayload" ]; then
     ui_print "Running image patcher on $name$slot...";
     dd bs=1048576 if=$target$slot of=boot.img || abort "Failed to dump image!";
@@ -100,11 +102,14 @@ for slot in _a _b; do
     $tool repack boot.img || abort "Failed to repack image!";
     $tool cleanup;
   fi;
+else
+  ui_print "Failed to get current slot!";
+  abort "Exiting...";
+fi;
 
-  blockdev --setrw $target$slot;
-  cat new-boot.img /dev/zero > $target$slot 2>/dev/null || true;
-  rm -f new-boot.img;
-done;
+blockdev --setrw $target$slot;
+cat new-boot.img /dev/zero > $target$slot 2>/dev/null || true;
+rm -f new-boot.img;
 
 if [ "$uefipayload" ]; then
   ui_print " ";
