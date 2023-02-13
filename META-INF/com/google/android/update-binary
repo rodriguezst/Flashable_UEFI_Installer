@@ -100,7 +100,9 @@ ui_print "Current slot: $slot."
       mv kernel kernel_orig
     fi;
 
-    $patcher kernel_orig $bootshim || abort "Failed to patch the kernel";
+    payloadsize=`expr $(stat -c "%s" $uefipayload)`
+
+    $patcher kernel_orig $bootshim $payloadsize || abort "Failed to patch the kernel";
 
     cat kernel_orig $uefipayload > kernel
     rm -f kernel_orig
