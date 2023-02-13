@@ -20,7 +20,7 @@ ps | grep zygote | grep -v grep >/dev/null && BOOTMODE=true;
 $BOOTMODE || ps -A 2>/dev/null | grep zygote | grep -v grep >/dev/null && BOOTMODE=true;
 
 ui_print "#############################################";
-ui_print "#  edk2-msm UEFI installer for A/B devices  #";
+ui_print "#          edk2-msm UEFI installer          #";
 ui_print "#############################################";
 ui_print " ";
 
@@ -40,8 +40,10 @@ mkdir -p $tmp;
 unzip -o "$ZIPFILE" -d $tmp || abort "Failed to extract zip!";
 
 cd $tmp;
-uefipayload=`(ls *_UEFI-Padding.fd) 2>/dev/null`;
+uefipayload=`(ls *_UEFI.fd) 2>/dev/null`;
+bootshim=`(ls BootShim.Dualboot.bin) 2>/dev/null`;
 [ "$uefipayload" ] || abort "No edk2-msm UEFI image found in zip!";
+[ "$bootshim" ] || abort "No edk2-msm bootshim image found in zip!";
 
 device_names=`(echo $uefipayload| cut -d '_' -f 1)`
 
@@ -65,14 +67,16 @@ device_names=`(echo $uefipayload| cut -d '_' -f 1)`
 }
 
 tool=$tmp/magiskboot;
+patcher=$tmp/kernelpatcher;
 chmod 755 $tool;
+chmod 755 $patcher;
 
 backuppath="/sdcard/boot_backup"
 slot=$(getprop ro.boot.slot_suffix)
 ui_print " ";
 ui_print "Current slot: $slot."
 
-if [ "$slot" ]; then
+# if [ "$slot" ]; then
   if [ "$uefipayload" ]; then
     ui_print "Running image patcher on $name$slot...";
     dd bs=1048576 if=$target$slot of=boot.img || abort "Failed to dump image!";
@@ -87,25 +91,27 @@ if [ "$slot" ]; then
     if [ "$(dd if=kernel bs=1 count=8 skip=64 status=none)" = "EDK2-MSM" ]; then
       ui_print "Patched boot.img with UEFI installed detected!";
       ui_print "Updating...";
-      kerneloffset=`expr $(dd if=kernel bs=1 count=4 skip=16 status=none | od -An -t u) + 2097152`
-      dd if=kernel iflag=skip_bytes skip=$kerneloffset of=kernel_orig bs=512
-      rm -f kernel
+      kernelsize=`expr $(dd if=kernel bs=1 count=4 skip=48 status=none | od -An -t u)`
+      ui_print "Original kernel size: $kernelsize";
+      dd bs=1048576 iflag=count_bytes if=kernel of=kernel_orig count=$kernelsize
     else
       ui_print "Stock boot.img detected!";
       ui_print "Installing...";
       mv kernel kernel_orig
     fi;
 
-    cat $uefipayload kernel_orig > kernel
+    $patcher kernel_orig $bootshim || abort "Failed to patch the kernel";
+
+    cat kernel_orig $uefipayload > kernel
     rm -f kernel_orig
 
     $tool repack boot.img || abort "Failed to repack image!";
     $tool cleanup;
   fi;
-else
-  ui_print "Failed to get current slot!";
-  abort "Exiting...";
-fi;
+# else
+#   ui_print "Failed to get current slot!";
+#   abort "Exiting...";
+# fi;
 
 blockdev --setrw $target$slot;
 cat new-boot.img /dev/zero > $target$slot 2>/dev/null || true;
@@ -121,4 +127,3 @@ rm -rf /dev/tmp;
 
 ui_print " ";
 ui_print "Done installing edk2-msm UEFI!";
-ui_print "Normal boot will enter Android, while Recovery mode is replaced with UEFI"
