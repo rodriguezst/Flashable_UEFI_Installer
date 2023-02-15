@@ -27,11 +27,8 @@ ui_print " ";
 # /dev/tmp is safe for both booted and recovery installs
 tmp=/dev/tmp/uefi-install;
 # target partition without the slot suffix
-if [ -e /dev/block/bootdevice/by-name/recovery_b ]; then
-  abort "Recovery partition detected! Cancelling the installation";
-else
-  target=/dev/block/bootdevice/by-name/boot;
-fi;
+target=/dev/block/bootdevice/by-name/boot;
+
 name=$(basename $target);
 
 ui_print "Unpacking the installer...";
