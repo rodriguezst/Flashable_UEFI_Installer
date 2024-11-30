@@ -1,5 +1,5 @@
 #!/sbin/sh
-# edk2-msm Flashable UEFI Installer
+# DBKP Flashable UEFI Installer
 # modified from the TWRP A/B Installer Backend by osm0sis, Dees_Troy and topjohnwu
 
 OUTFD=/proc/self/fd/$2;
@@ -20,7 +20,7 @@ ps | grep zygote | grep -v grep >/dev/null && BOOTMODE=true;
 $BOOTMODE || ps -A 2>/dev/null | grep zygote | grep -v grep >/dev/null && BOOTMODE=true;
 
 ui_print "#############################################";
-ui_print "#          edk2-msm UEFI installer          #";
+ui_print "#            DBPK UEFI installer            #";
 ui_print "#############################################";
 ui_print " ";
 
@@ -37,34 +37,15 @@ mkdir -p $tmp;
 unzip -o "$ZIPFILE" -d $tmp || abort "Failed to extract zip!";
 
 cd $tmp;
-uefipayload=`(ls *_UEFI.fd) 2>/dev/null`;
-bootshim=`(ls BootShim.Dualboot.bin) 2>/dev/null`;
-[ "$uefipayload" ] || abort "No edk2-msm UEFI image found in zip!";
-[ "$bootshim" ] || abort "No edk2-msm bootshim image found in zip!";
-
-device_names=`(echo $uefipayload| cut -d '_' -f 1)`
-
-[ "$device_names" ] && {
-	if ! command -v getprop; then
-		print "Warning: getprop not found! Skipping device check!"
-		return
-	fi
-	print "Checking device compatibility..."
-	match=0
-	ro_product_device=$(getprop ro.product.device)
-	ro_product_model=$(getprop ro.product.model)
-	ro_build_product=$(getprop ro.build.product)
-	for i in $device_names; do
-		[ "$ro_product_device" = "$i" ] ||
-		[ "$ro_product_model" = "$i" ] ||
-		[ "$ro_build_product" = "$i" ] &&
-			match=1
-	done
-	[ $match != 1 ] && abort "Unsupported device! Expecting $device_names, but this is $ro_product_device/$ro_product_model/$ro_build_product. Exiting..."
-}
+uefipayload=`(ls *_EFI.fd) 2>/dev/null`;
+dbkpcfg=`(ls DualBoot.*.cfg) 2>/dev/null`;
+shellcode=`(ls ShellCode.*.bin) 2>/dev/null`;
+[ "$uefipayload" ] || abort "No UEFI payload found in zip!";
+[ "$dbkpcfg" ] || abort "No dbkp config found in zip!";
+[ "$shellcode" ] || abort "No dbkp shellcode found in zip!";
 
 tool=$tmp/magiskboot;
-patcher=$tmp/kernelpatcher;
+patcher=$tmp/DualBootKernelPatcher;
 chmod 755 $tool;
 chmod 755 $patcher;
 
@@ -85,24 +66,8 @@ ui_print "Current slot: $slot."
 
     $tool unpack -h boot.img || abort "Failed to unpack image!";
 
-    if [ "$(dd if=kernel bs=1 count=8 skip=64 status=none)" = "EDK2-MSM" ]; then
-      ui_print "Patched boot.img with UEFI installed detected!";
-      ui_print "Updating...";
-      kernelsize=`expr $(dd if=kernel bs=1 count=4 skip=48 status=none | od -An -t u)`
-      ui_print "Original kernel size: $kernelsize";
-      dd bs=1048576 iflag=count_bytes if=kernel of=kernel_orig count=$kernelsize
-    else
-      ui_print "Stock boot.img detected!";
-      ui_print "Installing...";
-      mv kernel kernel_orig
-    fi;
-
-    payloadsize=`expr $(stat -c "%s" $uefipayload)`
-
-    $patcher kernel_orig $bootshim $payloadsize || abort "Failed to patch the kernel";
-
-    cat kernel_orig $uefipayload > kernel
-    rm -f kernel_orig
+    $patcher kernel $uefipayload patchedKernel $dbkpcfg $shellcode || abort "Failed to patch the kernel";
+    mv patchedKernel kernel
 
     $tool repack boot.img || abort "Failed to repack image!";
     $tool cleanup;
@@ -125,4 +90,4 @@ cd /;
 rm -rf /dev/tmp;
 
 ui_print " ";
-ui_print "Done installing edk2-msm UEFI!";
+ui_print "Done patching!";

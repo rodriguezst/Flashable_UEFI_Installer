@@ -1,0 +1,5 @@
+DualBootKernelPatcher
+DualBoot.*.cfg
+ShellCode.*.bin
+*_EFI.fd
+installer.zip
